@@ -41,6 +41,7 @@ class PublicTransportStopExtractor:
                 # Collect node and way references
                 for member in r.members:
                     if member.type == 'n':
+                        # TODO: This could also be done with the location information directly through locations=True!
                         self.parent.relation_way_node_refs.add(member.ref)
                         node_refs.append(member.ref)
                     elif member.type == 'w':
@@ -51,11 +52,13 @@ class PublicTransportStopExtractor:
 
                 # Store stop data for relation
                 relevant_service_tags = {key: value for key, value in r.tags if key in ['train', 'subway', 'light_rail', 'tram', 'railway', 'bus', 'highway']}
+                general_type, specific_type = self.parent.check_service_from_element_tags(relevant_service_tags)
                 self.parent.stop_data[r.id] = {
                     'name': r.tags.get('name', 'N/A'),
                     'object_type': 'relation',
                     'public_transport': put_tag,
-                    'service_type': self.parent.check_service_from_element_tags(relevant_service_tags),
+                    'service_type': general_type,
+                    'route_type': specific_type,
                     'node_refs': node_refs,
                     'way_refs': way_refs,
                 }
@@ -98,7 +101,7 @@ class PublicTransportStopExtractor:
             put_tag = w.tags.get('public_transport')
             railway_tag = w.tags.get('railway')
             # Process ways that are tagged as public_transport stop OR station OR are part of a relevant relation
-            if put_tag in ['platform', 'stop_position'] or railway_tag in ['station', 'halt', 'tram_stop'] or w.id in self.parent.relation_way_refs:
+            if put_tag in ['platform', 'stop_position', 'station'] or railway_tag in ['station', 'halt', 'tram_stop'] or w.id in self.parent.relation_way_refs:
                 node_refs = []
                 for n in w.nodes:
                     self.parent.relation_way_node_refs.add(n.ref)
@@ -107,22 +110,38 @@ class PublicTransportStopExtractor:
                 #1. Check if tagged with public_transport
                 if put_tag in ['platform', 'stop_position']:
                     relevant_service_tags = {key: value for key, value in w.tags if key in ['train', 'subway', 'light_rail', 'tram', 'railway', 'bus', 'highway']}
+                    general_type, specific_type = self.parent.check_service_from_element_tags(relevant_service_tags)
                     self.parent.stop_data[w.id] = {
                         'name': w.tags.get('name', 'N/A'),
                         'object_type': 'way',
                         'public_transport': put_tag,
-                        'service_type': self.parent.check_service_from_element_tags(relevant_service_tags),
+                        'service_type': general_type,
+                        'route_type': specific_type,
                         'node_refs': node_refs,
                     }
                 # Additionally check if tagged with railway (EBO vs BOStrab), if already exists overwrites with same info + adds railway tag
                 if railway_tag in ['station', 'halt', 'tram_stop']:
                     relevant_service_tags = {key: value for key, value in w.tags if key in ['station', 'railway']}
+                    general_type, specific_type = self.parent.check_station_service_from_element_tags(relevant_service_tags)
                     # Store stop data for the way, whether it's tagged itself or belongs to a relation
                     self.parent.stop_data[w.id] = {
                         'name': w.tags.get('name', 'N/A'),
                         'object_type': 'way',
                         'railway': railway_tag,
-                        'service_type': self.parent.check_station_service_from_element_tags(relevant_service_tags),
+                        'service_type': general_type,
+                        'route_type': specific_type,
+                        'node_refs': node_refs,
+                    }
+                elif put_tag == 'station':
+                    relevant_service_tags = {key: value for key, value in w.tags if key in ['station', 'railway', 'bus']}
+                    general_type, specific_type = self.parent.check_station_service_from_element_tags(relevant_service_tags)
+                    # Store stop data for the way, whether it's tagged itself or belongs to a relation
+                    self.parent.stop_data[w.id] = {
+                        'name': w.tags.get('name', 'N/A'),
+                        'object_type': 'way',
+                        'railway': railway_tag,
+                        'service_type': general_type,
+                        'route_type': specific_type,
                         'node_refs': node_refs,
                     }
                 # Process ways that are part of a relevant relation (not elif because can be in both!)
@@ -141,7 +160,7 @@ class PublicTransportStopExtractor:
             put_tag = n.tags.get('public_transport')
             railway_tag = n.tags.get('railway')
             # Process nodes that are either part of relations or ways, or are tagged independently as stops
-            if put_tag in ['platform', 'stop_position'] or railway_tag in ['station', 'halt', 'tram_stop'] or n.id in self.parent.relation_way_node_refs:
+            if put_tag in ['platform', 'stop_position', 'station'] or railway_tag in ['station', 'halt', 'tram_stop'] or n.id in self.parent.relation_way_node_refs:
                 # Store the coordinates of the node
                 self.parent.nodes_coords[n.id] = (n.location.lat, n.location.lon)
 
@@ -149,23 +168,40 @@ class PublicTransportStopExtractor:
                 # 1. Nodes tagged with public_transport
                 if n.tags.get('public_transport') in ['platform', 'stop_position']:
                     relevant_service_tags = {key: value for key, value in n.tags if key in ['train', 'subway', 'light_rail', 'tram', 'railway', 'bus', 'highway']}
+                    general_type, specific_type = self.parent.check_service_from_element_tags(relevant_service_tags)
                     self.parent.stop_data[n.id] = {
                         'name': n.tags.get('name', 'N/A'),
                         'object_type': 'node',
                         'public_transport': put_tag,
-                        'service_type': self.parent.check_service_from_element_tags(relevant_service_tags),
+                        'service_type': general_type,
+                        'route_type': specific_type,
                         'lat': n.location.lat,
                         'lon': n.location.lon
                     }
                 # 2. Alternatively check if tagged with railway (EBO vs BOStrab), if already exists overwrites with same info + adds railway tag
                 if railway_tag in ['station', 'halt', 'tram_stop']:
                     relevant_service_tags = {key: value for key, value in n.tags if key in ['station', 'railway']}
+                    general_type, specific_type = self.parent.check_station_service_from_element_tags(relevant_service_tags)
                     # Store stop data for the way, whether it's tagged itself or belongs to a relation
                     self.parent.stop_data[n.id] = {
                         'name': n.tags.get('name', 'N/A'),
                         'object_type': 'node',
                         'railway': railway_tag,
-                        'service_type': self.parent.check_station_service_from_element_tags(relevant_service_tags),
+                        'service_type': general_type,
+                        'route_type': specific_type,
+                        'lat': n.location.lat,
+                        'lon': n.location.lon
+                    }
+                elif put_tag =='station':
+                    relevant_service_tags = {key: value for key, value in n.tags if key in ['station', 'railway', 'bus']}
+                    general_type, specific_type = self.parent.check_station_service_from_element_tags(relevant_service_tags)
+                    # Store stop data for the way, whether it's tagged itself or belongs to a relation
+                    self.parent.stop_data[n.id] = {
+                        'name': n.tags.get('name', 'N/A'),
+                        'object_type': 'node',
+                        'railway': railway_tag,
+                        'service_type': general_type,
+                        'route_type': specific_type,
                         'lat': n.location.lat,
                         'lon': n.location.lon
                     }
@@ -178,37 +214,54 @@ class PublicTransportStopExtractor:
     def process_ways(self):
         """Run the way handler on the OSM file."""
         way_handler = self.WayHandler(self)
-        way_handler.apply_file(self.osm_file)  # Use the stored file path
+        way_handler.apply_file(self.osm_file, locations=True)  # Use the stored file path
 
     def process_nodes(self):
         """Run the node handler on the OSM file."""
         node_handler = self.NodeHandler(self)
-        node_handler.apply_file(self.osm_file)  # Use the stored file path
+        node_handler.apply_file(self.osm_file, locations=True)  # Use the stored file path
 
     @staticmethod
     def check_service_from_element_tags(tags):
+        # tag_lookup = {
+        #     'train': 'train',
+        #     'subway': 'subway',
+        #     'light_rail': 'light_rail',
+        #     'tram': 'tram',
+        #     'railway': 'railway_platform',
+        #     'bus': 'bus',
+        #     'highway': 'highway_platform'
+        # }
         tag_lookup = {
-            'train': 'train',
-            'subway': 'subway',
-            'light_rail': 'light_rail',
-            'tram': 'tram',
-            'railway': 'railway_platform',
-            'bus': 'bus',
-            'highway': 'highway_platform'
+            'train': ['rail', 'train'],
+            'subway': ['rail', 'subway'],
+            'light_rail': ['rail', 'light_rail'],
+            'tram': ['rail', 'tram'],
+            'bus': ['bus', 'bus']
         }
-
+        #Vsys-Check
         for tag, result in tag_lookup.items():
-            if tags.get(tag) == 'yes' or tags.get(tag) == 'platform':
-                return result
+            if tags.get(tag) == 'yes':
+                return result[0], result[1]
+        #bus_stop check
+        if tags.get('highway') == 'bus_stop':
+            return 'bus', 'bus'
+        #platform check
+        for tag, result in {'railway': ['rail', 'railway_platform'], 'highway': ['bus', 'highway_platform']}.items():
+            if tags.get(tag) == 'platform':
+                return result[0], result[1]
 
-        return 'unknown'
+        return 'unknown', 'unknown'
 
     @staticmethod
     def check_station_service_from_element_tags(tags):
         if tags.get('station') in ['train', 'subway', 'light_rail', 'monorail', 'funicular']:
-            return tags.get('station')
-        return tags.get('railway')
+            return 'rail', tags.get('station')
+        elif tags.get('bus') == 'yes':
+            return 'bus', 'bus'
+        return 'rail', tags.get('railway')
 
+    # TODO: This is not hte actual centroid, just the mean of all involved vertices. Most likely within the area but not at the real centroid! See calculate_centroid_vectorized for possible np function to calculate from locations
     def compute_centroids(self):
         """ Compute centroids for ways and relations after node processing. """
         for stop_id, stop_info in self.stop_data.items():
@@ -240,6 +293,25 @@ class PublicTransportStopExtractor:
         lon_sum = sum(coord[1] for coord in coords)
         count = len(coords)
         return (lat_sum / count, lon_sum / count)
+
+    # def calculate_centroid_vectorized(nodes):
+    #     # Extract coordinates into numpy arrays for efficient vector operations
+    #     coords = np.array([(node.location.x, node.location.y) for node in nodes])
+    #
+    #     x = coords[:, 0]
+    #     y = coords[:, 1]
+    #
+    #     # Shift the coordinates for vectorized cross-product calculation
+    #     x_shift = np.roll(x, -1)
+    #     y_shift = np.roll(y, -1)
+    #
+    #     # Compute area (A) and the centroids
+    #     cross = x * y_shift - x_shift * y
+    #     A = np.sum(cross) / 2.0
+    #     Cx = np.sum((x + x_shift) * cross) / (6.0 * A)
+    #     Cy = np.sum((y + y_shift) * cross) / (6.0 * A)
+    #
+    #     return Cx, Cy
 
     def add_info_stoparea_putline(self):
         # Iterate over the dictionary and update names and putline info
