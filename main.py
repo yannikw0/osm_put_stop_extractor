@@ -1,6 +1,7 @@
 import osmium
 import pandas as pd
 import logging
+import pathlib
 
 
 class PublicTransportStopExtractor:
@@ -19,14 +20,19 @@ class PublicTransportStopExtractor:
             super().__init__()
             self.parent = parent
             # prioritization of different kinds of train services
+            # TODO: Figure iut what to do with passenger key...
             self.prioritization_services = {
                 'high_speed': 1,
+                'international': 1,
                 'long_distance': 2,
+                'national': 2,
                 'regional': 3,
                 'commuter': 4,
-                'night': 5,
-                'tourism': 6,
-                'car': 7,
+                'suburban': 4,
+                'local': 5,
+                'night': 6,
+                'tourism': 7,
+                'car': 8,
                 'car_shuttle': 8,
                 'event': 9,
             }
@@ -57,7 +63,7 @@ class PublicTransportStopExtractor:
                     'name': r.tags.get('name', 'N/A'),
                     'object_type': 'relation',
                     'public_transport': put_tag,
-                    'service_type': general_type,
+                    'general_type': general_type,
                     'route_type': specific_type,
                     'node_refs': node_refs,
                     'way_refs': way_refs,
@@ -78,7 +84,9 @@ class PublicTransportStopExtractor:
                     if service_type in self.prioritization_services:
                         priority = self.prioritization_services[service_type]
                     else:
-                        raise ValueError(f'train service_type: {service_type} not in prioritization list.')
+                        # print if not on the list and assign prio type 10
+                        print(f'train service_type: {service_type} not in prioritization list.')
+                        priority = 10
                 else:
                     service_type = ''
                     priority = 10
@@ -107,7 +115,7 @@ class PublicTransportStopExtractor:
                     self.parent.relation_way_node_refs.add(n.ref)
                     node_refs.append(n.ref)
                 # Store stop data for the way, whether it's tagged itself or belongs to a relation
-                #1. Check if tagged with public_transport
+                # 1. Check if tagged with public_transport
                 if put_tag in ['platform', 'stop_position']:
                     relevant_service_tags = {key: value for key, value in w.tags if key in ['train', 'subway', 'light_rail', 'tram', 'railway', 'bus', 'highway']}
                     general_type, specific_type = self.parent.check_service_from_element_tags(relevant_service_tags)
@@ -115,7 +123,7 @@ class PublicTransportStopExtractor:
                         'name': w.tags.get('name', 'N/A'),
                         'object_type': 'way',
                         'public_transport': put_tag,
-                        'service_type': general_type,
+                        'general_type': general_type,
                         'route_type': specific_type,
                         'node_refs': node_refs,
                     }
@@ -128,7 +136,7 @@ class PublicTransportStopExtractor:
                         'name': w.tags.get('name', 'N/A'),
                         'object_type': 'way',
                         'railway': railway_tag,
-                        'service_type': general_type,
+                        'general_type': general_type,
                         'route_type': specific_type,
                         'node_refs': node_refs,
                     }
@@ -140,7 +148,7 @@ class PublicTransportStopExtractor:
                         'name': w.tags.get('name', 'N/A'),
                         'object_type': 'way',
                         'railway': railway_tag,
-                        'service_type': general_type,
+                        'general_type': general_type,
                         'route_type': specific_type,
                         'node_refs': node_refs,
                     }
@@ -173,7 +181,7 @@ class PublicTransportStopExtractor:
                         'name': n.tags.get('name', 'N/A'),
                         'object_type': 'node',
                         'public_transport': put_tag,
-                        'service_type': general_type,
+                        'general_type': general_type,
                         'route_type': specific_type,
                         'lat': n.location.lat,
                         'lon': n.location.lon
@@ -187,12 +195,12 @@ class PublicTransportStopExtractor:
                         'name': n.tags.get('name', 'N/A'),
                         'object_type': 'node',
                         'railway': railway_tag,
-                        'service_type': general_type,
+                        'general_type': general_type,
                         'route_type': specific_type,
                         'lat': n.location.lat,
                         'lon': n.location.lon
                     }
-                elif put_tag =='station':
+                elif put_tag == 'station':
                     relevant_service_tags = {key: value for key, value in n.tags if key in ['station', 'railway', 'bus']}
                     general_type, specific_type = self.parent.check_station_service_from_element_tags(relevant_service_tags)
                     # Store stop data for the way, whether it's tagged itself or belongs to a relation
@@ -200,7 +208,7 @@ class PublicTransportStopExtractor:
                         'name': n.tags.get('name', 'N/A'),
                         'object_type': 'node',
                         'railway': railway_tag,
-                        'service_type': general_type,
+                        'general_type': general_type,
                         'route_type': specific_type,
                         'lat': n.location.lat,
                         'lon': n.location.lon
@@ -239,14 +247,14 @@ class PublicTransportStopExtractor:
             'tram': ['rail', 'tram'],
             'bus': ['bus', 'bus']
         }
-        #Vsys-Check
+        # Vsys-Check
         for tag, result in tag_lookup.items():
             if tags.get(tag) == 'yes':
                 return result[0], result[1]
-        #bus_stop check
+        # bus_stop check
         if tags.get('highway') == 'bus_stop':
             return 'bus', 'bus'
-        #platform check
+        # platform check
         for tag, result in {'railway': ['rail', 'railway_platform'], 'highway': ['bus', 'highway_platform']}.items():
             if tags.get(tag) == 'platform':
                 return result[0], result[1]
@@ -261,7 +269,7 @@ class PublicTransportStopExtractor:
             return 'bus', 'bus'
         return 'rail', tags.get('railway')
 
-    # TODO: This is not hte actual centroid, just the mean of all involved vertices. Most likely within the area but not at the real centroid! See calculate_centroid_vectorized for possible np function to calculate from locations
+    # TODO: This is not the actual centroid, just the mean of all involved vertices. Most likely within the area but not at the real centroid! See calculate_centroid_vectorized for possible np function to calculate from locations
     def compute_centroids(self):
         """ Compute centroids for ways and relations after node processing. """
         for stop_id, stop_info in self.stop_data.items():
@@ -284,6 +292,7 @@ class PublicTransportStopExtractor:
                     centroid_lat, centroid_lon = self.compute_centroid(node_coords)
                     stop_info['lat'] = centroid_lat
                     stop_info['lon'] = centroid_lon
+
     @staticmethod
     def compute_centroid(coords):
         """ Compute the centroid of a list of (lat, lon) coordinates. """
@@ -346,7 +355,9 @@ if __name__ == '__main__':
     # Create a logger
     logger = logging.getLogger(__name__)
 
-    osm_file_path = '20240806_Stuttgart30kmBoundingBox.osm.pbf'
+    working_dir = pathlib.Path.cwd()
+
+    osm_file_path = working_dir / '20250218_all_stuttgart_Untersuchungsraum.osm.pbf'
     # Pass the file path directly when creating an instance of the class
     extractor = PublicTransportStopExtractor(osm_file_path)
 
@@ -396,6 +407,6 @@ if __name__ == '__main__':
     results_df = extractor.get_results()
 
     # Write the DataFrame to a CSV file
-    csv_file_raw = "S30_stops_put_stops_processed.csv"
+    csv_file_raw = "M30_put_stops_processed.csv"
     results_df.to_csv(csv_file_raw, index=False)
-    logger.info('CSV file with extracted PuT data created successfully.')
+    logger.info(f'CSV file with extracted PuT data created successfully: {working_dir / csv_file_raw}')
