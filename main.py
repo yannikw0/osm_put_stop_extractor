@@ -48,15 +48,19 @@ class PublicTransportStopExtractor:
                 route_type = r.tags['route']
                 # assign priority to train stops
                 if route_type == 'train' and 'service' in r.tags:
-                    service_type = r.tags['service']
-                    if service_type in self.prioritization_services:
-                        priority = self.prioritization_services[service_type]
+                    service_types = r.tags['service']
+                    # sometimes the values are split by semicolon
+                    service_types_split = service_types.split(';')
+                    priorities = [self.prioritization_services[st] for st in service_types_split if st in self.prioritization_services]
+
+                    if priorities:
+                        priority = min(priorities)
                     else:
                         # print if not on the list and assign prio type 10
-                        logging.warning(f'train service_type: {service_type} not in prioritization list.')
+                        logging.warning(f'None of train service_type: {service_types} is in prioritization list.')
                         priority = 10
                 else:
-                    service_type = ''
+                    service_types = ''
                     priority = 10
                 for member in r.members:
                     if member.role == 'stop' or member.role == 'platform':
@@ -66,7 +70,7 @@ class PublicTransportStopExtractor:
                             self.parent.putline_elems[member.ref] = {
                                 "osm_object_type": objtype,
                                 "osm_route_type": route_type,
-                                "osm_service_type": service_type,
+                                "osm_service_type": service_types,
                                 "service_priority": priority
                             }
 
